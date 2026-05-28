@@ -23,8 +23,6 @@ def get_player_info(player_id):
         "region": "Failed to fetch region"
     }
 
-
-# دالة فحص الحظر
 def check_banned(player_id):
     url = f"https://ff.garena.com/api/antihack/check_banned?lang=en&uid={player_id}"
     headers = {
@@ -42,16 +40,17 @@ def check_banned(player_id):
             data = response.json().get("data", {})
             is_banned = data.get("is_banned", 0)
             period = data.get("period", 0)
+            ban_status = "BANNED" if is_banned else "NOT BANNED"
 
             result = {
-                "status": "success",
+                "status": ban_status,          # الحقل الذي يعرض حالة الحظر
                 "uid": player_id,
                 "nickname": player_info["nickname"],
                 "region": player_info["region"],
-                "account_status": "BANNED" if is_banned else "NOT BANNED",
+                "account_status": ban_status,  # يظل موجودًا احتياطيًا
                 "ban_duration_days": period if is_banned else 0,
                 "is_banned": bool(is_banned),
-                "powered_by": "XcT_x_TEAM"
+                "powered_by": "XcT-x-TeAm"
             }
 
             return Response(
@@ -72,7 +71,6 @@ def check_banned(player_id):
             "status_code": 500
         }, indent=4), mimetype="application/json")
 
-
 @app.route("/check", methods=["GET"])
 def check():
     player_id = request.args.get("uid", "")
@@ -85,7 +83,6 @@ def check():
         }, indent=4), mimetype="application/json")
 
     return check_banned(player_id)
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))

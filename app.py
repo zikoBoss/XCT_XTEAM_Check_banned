@@ -1,3 +1,4 @@
+
 from flask import Flask, request, Response
 import requests
 import json
@@ -5,26 +6,54 @@ import os
 
 app = Flask(__name__)
 
-def get_player_info(player_id):
-    url = f"https://xza-get-region.vercel.app/region?uid={player_id}"
-    try:
-        r = requests.get(url, timeout=10)
-        if r.status_code == 200:
-            data = r.json()
-            return {
-                "nickname": data.get("nickname", "Not available"),
-                "region": data.get("region", "Unknown")
-            }
-    except:
-        pass
+# API جلب معلومات اللاعب الجديد
+PLAYER_INFO_API = "https://mahir-info-api.vercel.app/info"
 
-    return {
-        "nickname": "Failed to fetch nickname",
-        "region": "Failed to fetch region"
-    }
+# API فحص حالة الحظر - سنحافظ عليه كما هو
+BAN_CHECK_API = "https://ff.garena.com/api/antihack/check_banned"
+
+
+def json_response(data, status_code=200):
+    return Response(
+        json.dumps(data, indent=4, ensure_ascii=False),
+        status=status_code,
+        mimetype="application/json"
+    )
+
+
+def get_player_info(player_id):
+    try:
+        response = requests.get(
+            PLAYER_INFO_API,
+            params={"uid": player_id},
+            timeout=15
+        )
+
+        response.raise_for_status()
+        data = response.json()
+
+        basic_info = data.get("basicInfo") or {}
+
+        return {
+            "nickname": basic_info.get(
+                "nickname", "Not available"
+            ),
+            "region": basic_info.get(
+                "region", "Unknown"
+            )
+        }
+
+    except Exception as e:
+        print(f"[PLAYER INFO ERROR] {e}")
+
+        return {
+            "nickname": "Not available",
+            "region": "Unknown"
+        }
+
 
 def check_banned(player_id):
-    url = f"https://ff.garena.com/api/antihack/check_banned?lang=en&uid={player_id}"
+
     headers = {
         "User-Agent": "Mozilla/5.0 (Linux; Android 10)",
         "Accept": "application/json",
@@ -33,56 +62,72 @@ def check_banned(player_id):
     }
 
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        # أولاً: فحص حالة الحظر
+        response = requests.get(
+            BAN_CHECK_API,
+            params={
+                "lang": "en",
+                "uid": player_id
+            },
+            headers=headers,
+            timeout=15
+        )
+
+        if response.status_code != 200:
+            return json_response({
+                "status": "error",
+                "message": "Failed to fetch ban status",
+                "status_code": 500
+            }, 500)
+
+        data = response.json().get("data", {})
+
+        is_banned = bool(data.get("is_banned", 0))
+
+        ban_status = (
+            "BANNED" if is_banned else "NOT BANNED"
+        )
+
+        # ثانياً: جلب الاسم والمنطقة من API الجديد
         player_info = get_player_info(player_id)
 
-        if response.status_code == 200:
-            data = response.json().get("data", {})
-            is_banned = data.get("is_banned", 0)
-            period = data.get("period", 0)
-            ban_status = "BANNED" if is_banned else "NOT BANNED"
+        result = {
+            "status": ban_status,
+            "uid": player_id,
+            "nickname": player_info["nickname"],
+            "region": player_info["region"],
+            "account_status": ban_status,
+            "is_banned": is_banned,
+            "powered_by": "XcT-x-TeAm"
+        }
 
-            result = {
-                "status": ban_status,          # الحقل الذي يعرض حالة الحظر
-                "uid": player_id,
-                "nickname": player_info["nickname"],
-                "region": player_info["region"],
-                "account_status": ban_status,  # يظل موجودًا احتياطيًا
-                "ban_duration_days": period if is_banned else 0,
-                "is_banned": bool(is_banned),
-                "powered_by": "XcT-x-TeAm"
-            }
-
-            return Response(
-                json.dumps(result, indent=4, ensure_ascii=False),
-                mimetype="application/json"
-            )
-
-        return Response(json.dumps({
-            "status": "error",
-            "message": "Failed to fetch ban status",
-            "status_code": 500
-        }, indent=4), mimetype="application/json")
+        return json_response(result)
 
     except Exception as e:
-        return Response(json.dumps({
+        return json_response({
             "status": "exception",
             "error": str(e),
             "status_code": 500
-        }, indent=4), mimetype="application/json")
+        }, 500)
+
 
 @app.route("/check", methods=["GET"])
 def check():
-    player_id = request.args.get("uid", "")
+
+    player_id = request.args.get("uid", "").strip()
 
     if not player_id:
-        return Response(json.dumps({
+        return json_response({
             "status": "error",
             "message": "uid is required",
             "status_code": 400
-        }, indent=4), mimetype="application/json")
+        }, 400)
 
     return check_banned(player_id)
 
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 5000))
+    )
